@@ -18,10 +18,19 @@ def get_calibration_data(calibration_file, camera_names):
             Intrinsic[0,0], Intrinsic[1,1] = cdata["focal_length_px"]
             Intrinsic[0,2], Intrinsic[1,2] = cdata["principal_point_px"]
 
+            #Distortion parameters
             Distortion = np.array(cdata["distortion_coeffs"])
+
+            #Rotation matrix and translation vector to convert from sensor 
+            #to common coordinate frame
+            Rotation = np.array(cdata["RT_body_from_sensor"])[:3,:3]
+            Translation = np.array(cdata["RT_body_from_sensor"])[:3,3]
+
             CameraInfo[cname] = {
                  "intrinsic": Intrinsic,
                  "distortion": Distortion,
+                 "rotation": Rotation,
+                 "translation": Translation,
                  }
 
     return CameraInfo
@@ -75,6 +84,7 @@ if __name__ == "__main__":
     camera_names_1 = ["B_MIDRANGECAM_C", "F_MIDLONGRANGECAM_CL",
                       "F_MIDRANGECAM_C"]
     camera_names_2 = ["M_FISHEYE_L", "M_FISHEYE_R"]
+    camera_names_3 = ["B_MIDRANGECAM_C", "F_MIDRANGECAM_C"]
     img_dir = dat_dir + "camera/"
     cal_dir = dat_dir + "calibration/"
 
