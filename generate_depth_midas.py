@@ -1,3 +1,7 @@
+import os
+import re
+import glob
+
 import numpy as np
 import cv2
 import torch
@@ -19,14 +23,42 @@ def DownSample_Image(image, reduction_factor):
     return image
 
 
-if __name__ == "__main__":
-    import os
+def get_serial_list(npat):
+    nums = [re.split('/|_|\.',s)[-2] for s in glob.glob(npat)]
+    nums.sort()
+    return nums
 
+
+if __name__ == "__main__":
     #Path components
-    dat_dir = os.getcwd() + "/datafiles/20220422-133712-00.40.45-00.41.45@Jarvis/sensor/"
-    camera_name = "F_MIDLONGRANGECAM_CL"
-    img_dir = dat_dir + "camera/" + camera_name + "/"
-    cal_dir = dat_dir + "calibration/"
+    dat_dir = os.path.join(os.getcwd(), "datafiles/20220422-133712-00.40.45-00.41.45@Jarvis/sensor")
+    assert os.path.exists(dat_dir)
+
+    main_cam_name = "F_MIDLONGRANGECAM_CL"
+    other_cam_names = ["B_MIDRANGECAM_C",
+                       "F_MIDRANGECAM_C",
+                       "M_FISHEYE_L",
+                       "M_FISHEYE_R"]
+
+    img_dir = os.path.join(dat_dir, "camera")
+    seg_dir = os.path.join(dat_dir, "camera_seg_bin")
+    cal_dir = os.path.join(dat_dir, "calibration")
+
+    dep_dir = os.path.join(os.getcwd(), "depth_maps")
+    if not os.path.exists(dep_dir):
+        os.mkdir(dep_dir)
+
+
+    #Get serial numbers for image files
+    serials = get_serial_list(os.path.join(img_dir, main_cam_name, "*.jpg"))
+    print(f"File serial numbers obtained for {main_cam_name}")
+
+    for cname in other_cam_names:
+        check = get_serial_list(os.path.join(img_dir, cname, "*.jpg"))
+        print(f"Serial numbers match for {cname}: {check==serials}")
+
+    check = get_serial_list(os.path.join(seg_dir, main_cam_name, "*.png"))
+    print(f"Serial numbers match for segmentation masks: {check==serials}")
 
 
     #Load MiDaS model for depth estimation
@@ -49,44 +81,49 @@ if __name__ == "__main__":
     else:
         transform = midas_transforms.small_transform
 
+    #Calibration data
+    CamCal = Calibration(os.path.join(cal_dir, "calibration.json"), [main_cam_name])
 
     #Load image for test
-    CamCal = Calibration(cal_dir+"calibration.json", [camera_name])
-    img_name = camera_name + "_0037498"
-    img = cv2.imread(img_dir+img_name+".jpg")
-    img = CamCal.undist(img, camera_name)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    input_img = transform(img).to(device)
+    for cname in [main_cam_name]:
+        out_dir = os.path.join(dep_dir, cname)
+        if not os.path.exists(out_dir):
+            os.mkdir(out_dir)
+        for snum in serials:
+            img_name = cname + "_" + snum + ".jpg"
+            img = cv2.imread(os.path.join(img_dir, cname, img_name))
+            img = CamCal.undist(img, cname)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            input_img = transform(img).to(device)
 
-    #Prediction
-    with torch.no_grad():
-        prediction = midas(input_img)
+            #Prediction
+            with torch.no_grad():
+                prediction = midas(input_img)
 
-        prediction = torch.nn.functional.interpolate(
-                    prediction.unsqueeze(1),
-                    size=img.shape[:2],
-                    mode="bicubic",
-                    align_corners=False,
-                ).squeeze()
+                prediction = torch.nn.functional.interpolate(
+                            prediction.unsqueeze(1),
+                            size=img.shape[:2],
+                            mode="bicubic",
+                            align_corners=False,
+                        ).squeeze()
 
-    depth_map = prediction.cpu().numpy()
+            depth_map = prediction.cpu().numpy()
 
-    depth_map = cv2.normalize(depth_map, None, 0, 1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_64F)
+            depth_map = cv2.normalize(depth_map, None, 0, 1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_64F)
 
-    depth_map = (depth_map*255).astype(np.uint8)
+            depth_map = (depth_map*255).astype(np.uint8)
 
-    plt.subplot(1,2,1)
-    plt.title("Image")
-    plt.imshow(img)
-    plt.subplot(1,2,2)
-    plt.title("Depth")
-    plt.imshow(cv2.applyColorMap(depth_map, cv2.COLORMAP_MAGMA))
-    plt.show()
+            #plt.subplot(1,2,1)
+            #plt.title("Image")
+            #plt.imshow(img)
+            #plt.subplot(1,2,2)
+            #plt.title("Depth")
+            #plt.imshow(cv2.applyColorMap(depth_map, cv2.COLORMAP_MAGMA))
+            #plt.show()
 
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    cv2.imwrite("Image.jpg", img)
-    cv2.imwrite("Depth.png", depth_map)
-    #cv2.imshow("Image", img)
-    #cv2.imshow("Depth", depth_map)
-    #cv2.waitKey(0)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            out_name = cname + "_" + snum + ".png"
+            cv2.imwrite(os.path.join(out_dir, out_name), depth_map)
+
+        print(f"Depth maps for {cname} ready")
 
