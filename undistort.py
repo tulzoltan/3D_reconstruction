@@ -24,11 +24,9 @@ def get_masks(calibration_file, camera_names):
 class Calibration():
     def __init__(self, calibration_file, camera_names):
         """Get intrinsic matrix and distortion parameters from calibration file"""
-        self.CameraInfo = {}
         self.Intrinsic = {}
         self.Distortion = {}
-        self.Rotation = {}
-        self.Translation = {}
+        self.Extrinsic = {}
         self.ObstructionMask = {}
 
         with open(calibration_file) as in_file:
@@ -36,7 +34,7 @@ class Calibration():
             for cname in camera_names:
                 cdata = data[cname]
 
-                #Construct intrinsic matrix
+                #Intrinsic matrix
                 self.Intrinsic[cname] = np.eye(3)
                 self.Intrinsic[cname][0,0], self.Intrinsic[cname][1,1] = cdata["focal_length_px"]
                 self.Intrinsic[cname][0,2], self.Intrinsic[cname][1,2] = cdata["principal_point_px"]
@@ -44,16 +42,14 @@ class Calibration():
                 #Distortion parameters
                 self.Distortion[cname] = np.array(cdata["distortion_coeffs"])
 
-                #Rotation matrix and translation vector to convert from 
-                #sensor to common coordinate frame
-                self.Rotation[cname] = np.array(cdata["RT_body_from_sensor"])[:3,:3]
-                self.Translation[cname] = np.array(cdata["RT_body_from_sensor"])[:3,3]
+                #Extrinsic matrix
+                self.Extrinsic[cname] = np.array(cdata["RT_sensor_from_body"])
 
                 #Obstruction mask
                 self.ObstructionMask[cname] = cdata["custom_vars"]["obstruction_mask_file"]
 
 
-    def undist(self, img_in, cam_name):
+    def undistort(self, img_in, cam_name):
         """Undistort and crop image, handle fisheye cameras separately"""
         h, w = img_in.shape[:2]
         CamMat = self.Intrinsic[cam_name]
