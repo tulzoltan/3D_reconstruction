@@ -136,6 +136,21 @@ class DataHandler:
         return depth_map
 
 
+def create_point_cloud(depth, color, fx, fy, cx, cy):
+    u, v = np.meshgrid(np.arange(depth.shape[1]), 
+                       np.arange(depth.shape[0]))
+
+    x = (u - cx) * depth / fx
+    y = (v - cy) * depth / fy
+
+    vertices = np.dstack([x, y, depth])
+
+    vertices = np.hstack([vertices.reshape(-1,3), 
+                          color.reshape(-1,3)])
+
+    return vertices
+
+
 def pointcloud_to_file(cloud, file_name):
     ply_header = """ply
         format ascii 1.0
@@ -177,6 +192,7 @@ def main():
         out_dir = os.path.join(generator.dep_dir, cname+"_test")
         if not os.path.exists(out_dir):
             os.mkdir(out_dir)
+        CamMat = generator.CamCal.Intrinsic_UD[cname]
         fx = generator.CamCal.Intrinsic_UD[cname][0,0]
         fy = generator.CamCal.Intrinsic_UD[cname][1,1]
         cx = generator.CamCal.Intrinsic_UD[cname][0,2]
@@ -192,18 +208,10 @@ def main():
             input_img = generator.load_image(cname, snum)
             depth_map = generator.get_depth_map(input_img)
 
-            #vertices = np.zeros(depth_map.shape+(1,))
-            #for i in range(depth_map.shape[0]):
-            #    for j in range(depth_map.shape[1]):
-            #        z = depth_map[i,j]
-            #        x = (j - cx) * z / fx
-            #        y = (i - cy) * z / fy
-            #        r, g, b = input_img[i,j]
-            #        vertices[] = x, y, z, r, g, b
-            #vertices = np.array(vertices)
+            #cloud = create_point_cloud(depth_map, input_img, fx, fy, cx, cy)
 
             #pcd_name = cname + "_" + snum + ".ply"
-            #pointcloud_to_file(vertices, pcd_name)
+            #pointcloud_to_file(cloud, os.path.join(out_dir, pcd_name))
 
             mask1 = depth_map > 30
             input_imp = input_img[mask1]
@@ -212,16 +220,13 @@ def main():
             img1, img2 = generator.apply_masks(input_img, cname, snum)
             dpt1, dpt2 = generator.apply_masks(depth_map, cname, snum)
 
-            #color_name = cname + "_" + snum + ".jpg"
-            #cv2.imwrite(os.path.join(out_dir, color_name), input_img)
-            #depth_name = cname + "_" + snum + ".png"
-            #cv2.imwrite(os.path.join(out_dir, depth_name), depth_map)
-
+            #Print color maps to file
             color_name_1 = cname + "_" + snum + "_env.jpg"
             cv2.imwrite(os.path.join(out_dir, color_name_1), img1)
             color_name_2 = cname + "_" + snum + "_dyn.jpg"
             cv2.imwrite(os.path.join(out_dir, color_name_2), img2)
 
+            #Print depth maps to file
             depth_name_1 = cname + "_" + snum + "_env.png"
             cv2.imwrite(os.path.join(out_dir, depth_name_1), dpt1)
             depth_name_2 = cname + "_" + snum + "_dyn.png"
