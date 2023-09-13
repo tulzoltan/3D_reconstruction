@@ -7,7 +7,7 @@ import cv2
 import torch
 import matplotlib.pyplot as plt
 
-from undistort import Calibration
+from calibration import Calibration
 
 
 def DownSample_Image(image, reduction_factor):
@@ -62,8 +62,7 @@ class DataHandler:
 
         #Get calibration data
         self.CamCal = Calibration(
-                os.path.join(self.cal_dir, "calibration.json"), 
-                self.cameras)
+                        self.cal_dir, "calibration.json", self.cameras)
 
     def load_model(self, model_type):
         if not model_type in ["MiDaS_small", "DPT_Hybrid", "DPT_Large"]:
@@ -87,16 +86,36 @@ class DataHandler:
             self.transform = midas_transforms.small_transform
 
     def load_image(self, camera_name, serial_number):
+        #Read image file
         img_name = camera_name + "_" + serial_number + ".jpg"
         img = cv2.imread(
                 os.path.join(self.img_dir, camera_name, img_name))
+        #Undistort image
         img = self.CamCal.undistort(img, camera_name)
-        input_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        input_img = self.transform(input_img).to(self.device)
-        return img, input_img, img.shape[:2]
+        return img
 
-    def get_depth_map(self, image, image_size):
-        #Prediction
+    def apply_masks(self, image, camera_name, serial_number):
+        #Segmentation mask
+        seg_name = camera_name + "_" + serial_number + ".png"
+        seg = cv2.imread(
+                os.path.join(self.seg_dir, camera_name, seg_name))
+        seg = self.CamCal.undistort(seg, camera_name)
+        #Obstruction mask
+        obs = self.CamCal.ObstructionMask[camera_name] > 0
+        if len(image.shape)==2:
+            seg = seg[:,:,0]
+            obs = obs[:,:,0]
+        dif1 = obs*seg*image
+        dif2 = obs*(1-seg)*image
+        return dif1, dif2
+
+    def get_depth_map(self, image):
+        #Transform image
+        image_size = image.shape[:2]
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = self.transform(image).to(self.device)
+
+        #Predict depth map
         with torch.no_grad():
             prediction = self.midas(image)
 
@@ -115,6 +134,24 @@ class DataHandler:
         depth_map = (depth_map*255).astype(np.uint8)
 
         return depth_map
+
+
+def pointcloud_to_file(cloud, file_name):
+    ply_header = """ply
+        format ascii 1.0
+        element vertex %(vert_num)d
+        property float x
+        property float y
+        property float z
+        property uchar red
+        property uchar green
+        property uchar blue
+        end_header
+        """
+
+    with open(file_name, "w") as f:
+        f.write(ply_header %dict(vert_num=len(cloud)))
+        np.savetxt(f, cloud, "%f %f %f %d %d %d")
 
 
 def main():
@@ -140,6 +177,10 @@ def main():
         out_dir = os.path.join(generator.dep_dir, cname+"_test")
         if not os.path.exists(out_dir):
             os.mkdir(out_dir)
+        fx = generator.CamCal.Intrinsic_UD[cname][0,0]
+        fy = generator.CamCal.Intrinsic_UD[cname][1,1]
+        cx = generator.CamCal.Intrinsic_UD[cname][0,2]
+        cy = generator.CamCal.Intrinsic_UD[cname][1,2]
         for snum in generator.serials:
             count+=1
             if count < 840:
@@ -148,22 +189,43 @@ def main():
                 break
             else:
                 print(count, snum)
-            img, input_img, img_size = generator.load_image(cname, snum)
+            input_img = generator.load_image(cname, snum)
+            depth_map = generator.get_depth_map(input_img)
 
-            depth_map = generator.get_depth_map(input_img, img_size)
+            #vertices = np.zeros(depth_map.shape+(1,))
+            #for i in range(depth_map.shape[0]):
+            #    for j in range(depth_map.shape[1]):
+            #        z = depth_map[i,j]
+            #        x = (j - cx) * z / fx
+            #        y = (i - cy) * z / fy
+            #        r, g, b = input_img[i,j]
+            #        vertices[] = x, y, z, r, g, b
+            #vertices = np.array(vertices)
 
-            #plt.subplot(1,2,1)
-            #plt.title("Image")
-            #plt.imshow(img)
-            #plt.subplot(1,2,2)
-            #plt.title("Depth")
-            #plt.imshow(cv2.applyColorMap(depth_map, cv2.COLORMAP_MAGMA))
-            #plt.show()
+            #pcd_name = cname + "_" + snum + ".ply"
+            #pointcloud_to_file(vertices, pcd_name)
 
-            color_name = cname + "_" + snum + ".jpg"
-            cv2.imwrite(os.path.join(out_dir, color_name), img)
-            depth_name = cname + "_" + snum + ".png"
-            cv2.imwrite(os.path.join(out_dir, depth_name), depth_map)
+            mask1 = depth_map > 30
+            input_imp = input_img[mask1]
+            depth_map = depth_map*mask1
+
+            img1, img2 = generator.apply_masks(input_img, cname, snum)
+            dpt1, dpt2 = generator.apply_masks(depth_map, cname, snum)
+
+            #color_name = cname + "_" + snum + ".jpg"
+            #cv2.imwrite(os.path.join(out_dir, color_name), input_img)
+            #depth_name = cname + "_" + snum + ".png"
+            #cv2.imwrite(os.path.join(out_dir, depth_name), depth_map)
+
+            color_name_1 = cname + "_" + snum + "_env.jpg"
+            cv2.imwrite(os.path.join(out_dir, color_name_1), img1)
+            color_name_2 = cname + "_" + snum + "_dyn.jpg"
+            cv2.imwrite(os.path.join(out_dir, color_name_2), img2)
+
+            depth_name_1 = cname + "_" + snum + "_env.png"
+            cv2.imwrite(os.path.join(out_dir, depth_name_1), dpt1)
+            depth_name_2 = cname + "_" + snum + "_dyn.png"
+            cv2.imwrite(os.path.join(out_dir, depth_name_2), dpt2)
 
         print(f"Depth maps for {cname} ready")
 

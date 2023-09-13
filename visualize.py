@@ -1,7 +1,8 @@
 import numpy as np
 import open3d as o3d
+import os
 
-from undistort import Calibration
+from calibration import Calibration
 
 def display_inlier_outlier(cloud, ind):
     inlier_cloud = cloud.select_by_index(ind)
@@ -13,43 +14,29 @@ def display_inlier_outlier(cloud, ind):
     o3d.visualization.draw_geometries([inlier_cloud, outlier_cloud])
 
 
-
-
-
 if __name__ == "__main__":
-    import os
-
     #Path components
-    dat_dir = os.getcwd() + "/datafiles/20220422-133712-00.40.45-00.41.45@Jarvis/sensor/"
+    cal_dir = os.path.join(os.getcwd(), "datafiles/20220422-133712-00.40.45-00.41.45@Jarvis/sensor/calibration")
     camera_name = "F_MIDLONGRANGECAM_CL"
-    cal_dir = dat_dir + "calibration/"
 
     #Get intrinsic matrix
-    CamCal = Calibration(cal_dir+"calibration.json", [camera_name])
+    CamCal = Calibration(cal_dir, "calibration.json", [camera_name])
 
     intrinsic = o3d.camera.PinholeCameraIntrinsic(
-            width=1819,
-            height=955,
-            intrinsic_matrix=CamCal.Intrinsic[camera_name],
+            width=CamCal.width[camera_name],
+            height=CamCal.height[camera_name],
+            intrinsic_matrix=CamCal.Intrinsic_UD[camera_name],
             )
 
     extrinsic = CamCal.Extrinsic[camera_name]
 
     serial = "0037532"
-    image_name = camera_name+"_"+serial
+    image_name = camera_name+"_"+serial+"_env"
     image_path = os.path.join(os.getcwd(), "processed_images", camera_name+"_test", image_name)
 
     #Load color and depth images
     color_raw = o3d.io.read_image(image_path+".jpg")
     depth_raw = o3d.io.read_image(image_path+".png")
-
-    depth_raw = np.asarray(depth_raw)
-    mask = depth_raw > 30.0
-    #color_raw = np.asarray(color_raw)
-
-    depth_raw = o3d.geometry.Image(depth_raw*mask)
-    #mask = np.repeat(mask[:,:,np.newaxis], 3, axis=2)
-    #color_raw = o3d.geometry.Image(color_raw*mask)
 
     rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
             color_raw, depth_raw, 1000.0, 3.0, False
