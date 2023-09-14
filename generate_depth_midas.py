@@ -10,26 +10,13 @@ import matplotlib.pyplot as plt
 from calibration import Calibration
 
 
-def DownSample_Image(image, reduction_factor):
-    """Downsample image reduction_factor number of times"""
-    for i in range(0, reduction_factor):
-        #check if image is colorful or grayscale
-        if len(image.shape) == 3:
-            row, col = image.shape[:2]
-        else:
-            row, col = image.shape
-
-        image = cv2.pyrDown(image, dstsize = (col//2, row//2))
-    return image
-
-
-def get_serial_list(npat):
-    nums = [re.split('/|_|\.',s)[-2] for s in glob.glob(npat)]
+def get_serial_list(pattern, n=0):
+    nums = [re.split('/|_|\.',s)[-2-n] for s in glob.glob(pattern)]
     nums.sort()
     return nums
 
 
-class DataHandler:
+class DepthEstimator_midas:
     def __init__(self, data_dir, main_camera, other_cameras):
         assert os.path.exists(data_dir)
 
@@ -136,39 +123,6 @@ class DataHandler:
         return depth_map
 
 
-def create_point_cloud(depth, color, fx, fy, cx, cy):
-    u, v = np.meshgrid(np.arange(depth.shape[1]), 
-                       np.arange(depth.shape[0]))
-
-    x = (u - cx) * depth / fx
-    y = (v - cy) * depth / fy
-
-    vertices = np.dstack([x, y, depth])
-
-    vertices = np.hstack([vertices.reshape(-1,3), 
-                          color.reshape(-1,3)])
-
-    return vertices
-
-
-def pointcloud_to_file(cloud, file_name):
-    ply_header = """ply
-        format ascii 1.0
-        element vertex %(vert_num)d
-        property float x
-        property float y
-        property float z
-        property uchar red
-        property uchar green
-        property uchar blue
-        end_header
-        """
-
-    with open(file_name, "w") as f:
-        f.write(ply_header %dict(vert_num=len(cloud)))
-        np.savetxt(f, cloud, "%f %f %f %d %d %d")
-
-
 def main():
     dat_dir = os.path.join(os.getcwd(), "datafiles/20220422-133712-00.40.45-00.41.45@Jarvis/sensor")
 
@@ -177,9 +131,10 @@ def main():
                        "F_MIDRANGECAM_C",
                        "M_FISHEYE_L",
                        "M_FISHEYE_R"]
+    other_cam_names = ["B_MIDRANGECAM_C", "F_MIDRANGECAM_C"]
 
     #Set up generator
-    generator = DataHandler(dat_dir, main_cam_name, other_cam_names)
+    generator = DepthEstimator_midas(dat_dir, main_cam_name, other_cam_names)
 
     #Load MiDaS model for depth estimation
     #model_type = "DPT_Large" # MiDaS v3 - Large
@@ -189,17 +144,12 @@ def main():
 
     count = 0
     for cname in [main_cam_name]:
-        out_dir = os.path.join(generator.dep_dir, cname+"_test")
+        out_dir = os.path.join(generator.dep_dir, cname)
         if not os.path.exists(out_dir):
             os.mkdir(out_dir)
-        CamMat = generator.CamCal.Intrinsic_UD[cname]
-        fx = generator.CamCal.Intrinsic_UD[cname][0,0]
-        fy = generator.CamCal.Intrinsic_UD[cname][1,1]
-        cx = generator.CamCal.Intrinsic_UD[cname][0,2]
-        cy = generator.CamCal.Intrinsic_UD[cname][1,2]
         for snum in generator.serials:
             count+=1
-            if count < 840:
+            if count < 800: #840 - 850
                 continue
             elif count > 850:
                 break
@@ -208,29 +158,34 @@ def main():
             input_img = generator.load_image(cname, snum)
             depth_map = generator.get_depth_map(input_img)
 
-            #cloud = create_point_cloud(depth_map, input_img, fx, fy, cx, cy)
-
-            #pcd_name = cname + "_" + snum + ".ply"
-            #pointcloud_to_file(cloud, os.path.join(out_dir, pcd_name))
-
             mask1 = depth_map > 30
-            input_imp = input_img[mask1]
+            input_img = input_img*np.repeat(mask1[:,:,np.newaxis],3,axis=2)
             depth_map = depth_map*mask1
 
-            img1, img2 = generator.apply_masks(input_img, cname, snum)
-            dpt1, dpt2 = generator.apply_masks(depth_map, cname, snum)
+            if cname == main_cam_name:
+                img1, img2 = generator.apply_masks(input_img, cname, snum)
+                dpt1, dpt2 = generator.apply_masks(depth_map, cname, snum)
 
-            #Print color maps to file
-            color_name_1 = cname + "_" + snum + "_env.jpg"
-            cv2.imwrite(os.path.join(out_dir, color_name_1), img1)
-            color_name_2 = cname + "_" + snum + "_dyn.jpg"
-            cv2.imwrite(os.path.join(out_dir, color_name_2), img2)
+                #Print color maps to file
+                color_name_1 = cname + "_" + snum + "_env.jpg"
+                cv2.imwrite(os.path.join(out_dir, color_name_1), img1)
+                color_name_2 = cname + "_" + snum + "_dyn.jpg"
+                cv2.imwrite(os.path.join(out_dir, color_name_2), img2)
 
-            #Print depth maps to file
-            depth_name_1 = cname + "_" + snum + "_env.png"
-            cv2.imwrite(os.path.join(out_dir, depth_name_1), dpt1)
-            depth_name_2 = cname + "_" + snum + "_dyn.png"
-            cv2.imwrite(os.path.join(out_dir, depth_name_2), dpt2)
+                #Print depth maps to file
+                depth_name_1 = cname + "_" + snum + "_env.png"
+                cv2.imwrite(os.path.join(out_dir, depth_name_1), dpt1)
+                depth_name_2 = cname + "_" + snum + "_dyn.png"
+                cv2.imwrite(os.path.join(out_dir, depth_name_2), dpt2)
+
+            else:
+                #Print color maps to file
+                color_name = cname + "_" + snum + ".jpg"
+                cv2.imwrite(os.path.join(out_dir, color_name), input_img)
+
+                #Print depth map to file
+                depth_name = cname + "_" + snum + ".png"
+                cv2.imwrite(os.path.join(out_dir, depth_name), depth_map)
 
         print(f"Depth maps for {cname} ready")
 

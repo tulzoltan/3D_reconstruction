@@ -53,7 +53,8 @@ class Calibration():
                     _, _, self.width[cname], self.height[cname] = roi
 
                 #Extrinsic matrix
-                self.Extrinsic[cname] = np.array(cdata["RT_sensor_from_body"])
+                #self.Extrinsic[cname] = np.array(cdata["RT_sensor_from_body"])
+                self.Extrinsic[cname] = np.array(cdata["RT_body_from_sensor"])
 
                 #Obstruction mask
                 fname = cdata["custom_vars"]["obstruction_mask_file"]
