@@ -117,8 +117,8 @@ class DepthEstimator_sfm():
                  matchesMask = None, #draw only inliers
                  flags = 2)
 
-        img3 = cv2.drawMatches(img_c, kp1, img_p, 
-                               kp2, good ,None,**draw_params)
+        img3 = cv2.drawMatches(img_c, kp1, img_p, kp2, 
+                               good ,None,**draw_params)
         cv2.imshow("image", img3)
         cv2.waitKey(0)
 
@@ -127,40 +127,20 @@ class DepthEstimator_sfm():
         q2 = np.float32([kp2[m.trainIdx].pt for m in good])
         return q1, q2
 
-    def get_pose(self, q1, q2, cname):
+    def get_key_depth(self, q1, q2, cname):
         """
-        Calculates the transformation matrix
-
         Parameters
-        q1 (ndarray): The good keypoints matches position in i-1'th image
-        q2 (ndarray): The good keypoints matches position in i'th image
+        q1 (ndarray): good keypoint matches in (i-1)th image
+        q2 (ndarray): good keypoint matches in ith image
+        cname (str): camera name
 
         Returns
-        transformation_matrix (ndarray): The transformation matrix
+        right_set (ndarray): position of matching keypoints in 3D space
         """
         # Essential matrix
         E, _ = cv2.findEssentialMat(q1, q2, 
                     self.CamCal.Intrinsic_UD[cname], threshold=1)
 
-        # Decompose the Essential matrix into R and t
-        R, t = self.decomp_essential_mat(E, q1, q2, cname)
-
-        # Get transformation matrix
-        transformation_matrix = self._form_transf(R, np.squeeze(t))
-        return transformation_matrix
-
-    def decomp_essential_mat(self, E, q1, q2, cname):
-        """
-        Decompose the Essential matrix
-
-        Parameters
-        E (ndarray): Essential matrix
-        q1 (ndarray): The good keypoints matches position in i-1'th image
-        q2 (ndarray): The good keypoints matches position in i'th image
-
-        Returns
-        right_pair (list): Contains the rotation matrix and translation vector
-        """
         def sum_z_cal_relative_scale(R, t):
             #Get the transformation matrix
             T = self._form_transf(R, t)
@@ -180,15 +160,15 @@ class DepthEstimator_sfm():
             uhom_Q1 = hom_Q1[:3, :] / hom_Q1[3, :]
             uhom_Q2 = hom_Q2[:3, :] / hom_Q2[3, :]
 
-            #Find the number of points there has positive z coordinate 
-            #in both cameras
+            #Find the number of points that have positive z coordinate 
+            #for both cameras
             sum_of_pos_z_Q1 = sum(uhom_Q1[2, :] > 0)
             sum_of_pos_z_Q2 = sum(uhom_Q2[2, :] > 0)
 
-            # Form point pairs and calculate the relative scale
+            #Form point pairs and calculate the relative scale
             relative_scale = np.mean(np.linalg.norm(uhom_Q1.T[:-1] - uhom_Q1.T[1:], axis=-1)/
                                      np.linalg.norm(uhom_Q2.T[:-1] - uhom_Q2.T[1:], axis=-1))
-            return sum_of_pos_z_Q1 + sum_of_pos_z_Q2, relative_scale
+            return sum_of_pos_z_Q1 + sum_of_pos_z_Q2, relative_scale, hom_Q1[:3, :]
 
         #Decompose the essential matrix
         R1, R2, t = cv2.decomposeEssentialMat(E)
@@ -197,23 +177,37 @@ class DepthEstimator_sfm():
         #Make a list of the different possible pairs
         pairs = [[R1, t], [R1, -t], [R2, t], [R2, -t]]
 
-        #Check which solution there is the right one
+        #Check which solution is the right one
         z_sums = []
-        relative_scales = []
+        #relative_scales = []
+        coords = []
         for R, t in pairs:
-            z_sum, scale = sum_z_cal_relative_scale(R, t)
+            z_sum, scale, pos = sum_z_cal_relative_scale(R, t)
             z_sums.append(z_sum)
-            relative_scales.append(scale)
+            #relative_scales.append(scale)
+            coords.append(pos)
 
         #Select the pair that has the most points with positive 
         #z coordinates
         right_pair_idx = np.argmax(z_sums)
-        right_pair = pairs[right_pair_idx]
-        relative_scale = relative_scales[right_pair_idx]
-        R1, t = right_pair
-        t = t * relative_scale
+        right_set = coords[right_pair_idx]
+        #right_pair = pairs[right_pair_idx]
+        #relative_scale = relative_scales[right_pair_idx]
+        #R1, t = right_pair
+        #t = t * relative_scale
 
-        return [R1, t]
+        return right_set
+
+def conv2map(Q_set, map_size, fx, fy, cx, cy):
+    depth_map = np.zeros(map_size)
+
+    for x, y, z in Q_set:
+        if z > 0:
+            u = x*fx/z + cx
+            v = v*fy/z + cy
+            depth_map[v, u] = z
+
+    return depth_map
 
 
 def main():
@@ -253,10 +247,11 @@ def main():
 
             input_img = gen.load_image(cname, snum)
             q1, q2 = gen.get_matches(input_img, previous)
-            transf = gen.get_pose(q1, q2, cname)
-            cur_pose = cur_pose @ np.linalg.inv(transf)
-            print(f"Current pose: \n{cur_pose}\n")
-
+            Q = gen.get_key_depth(q1, q2, cname)
+            print(q1.shape, q2.shape, Q.shape)
+            #transf = gen.get_pose(q1, q2, cname)
+            #cur_pose = cur_pose @ np.linalg.inv(transf)
+            #print(f"Current pose: \n{cur_pose}\n")
 
         print(f"Depth maps for {cname} ready")
 
