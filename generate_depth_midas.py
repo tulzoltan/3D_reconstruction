@@ -137,8 +137,8 @@ def main():
     generator = DepthEstimator_midas(dat_dir, main_cam_name, other_cam_names)
 
     #Load MiDaS model for depth estimation
-    #model_type = "DPT_Large" # MiDaS v3 - Large
-    model_type = "DPT_Hybrid" # MiDaS v3 - hybrid
+    model_type = "DPT_Large" # MiDaS v3 - Large
+    #model_type = "DPT_Hybrid" # MiDaS v3 - hybrid
     #model_type = "MiDaS_small" # MiDaS v2.1 - small
     generator.load_model(model_type)
 

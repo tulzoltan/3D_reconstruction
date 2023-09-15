@@ -7,6 +7,12 @@ from calibration import Calibration
 from generate_depth_midas import get_serial_list
 
 
+def mswitch(M, i, j):
+    M[[i,j],:] = M[[j,i],:]
+    M[:,[i,j]] = M[:,[j,i]]
+    return M
+
+
 def display_inlier_outlier(cloud, ind):
     inlier_cloud = cloud.select_by_index(ind)
     outlier_cloud = cloud.select_by_index(ind, invert=True)
@@ -23,11 +29,9 @@ def get_egomotion(file_name, serials):
     with open(file_name, "r") as f:
         data = json.load(f)
 
-    short = { snum: data[s]["RT_ECEF_body"] for s, snum in zip(nol0, serials) }
+    short = { snum: np.array(data[s]["RT_ECEF_body"]) for s, snum in zip(nol0, serials) }
 
-    base = data["40"]["RT_ECEF_body"]
-
-    return short, base
+    return short
 
 
 if __name__ == "__main__":
@@ -57,7 +61,7 @@ if __name__ == "__main__":
             os.path.join(os.getcwd(),img_path,"*_env.jpg"), 1)
 
     #Get egomotion data
-    trajectory, base = get_egomotion(
+    trajectory = get_egomotion(
             os.path.join(ego_dir, "egomotion2.json"), serials)
 
     pcds = []
@@ -65,9 +69,11 @@ if __name__ == "__main__":
     ext_base = None
     for snum in serials:
         counter += 1
-        if counter > 2:
+        if counter < 40:
+            continue
+        if counter > 41:
             break
-        if counter == 1:
+        if counter == 40:
             ext_base = np.linalg.inv(trajectory[snum])
         #serial = "0037532"
         img_name = camera_name+"_"+snum+"_env"
@@ -78,18 +84,25 @@ if __name__ == "__main__":
         depth_raw = o3d.io.read_image(
                 os.path.join(img_path, img_name+".png"))
 
+        scale = 0.0022 #using info from basler website
+
         rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
-            color_raw, depth_raw, 1.0, 3000.0, False
+            color_raw, depth_raw, scale, 3000./scale, False
             )
 
-        world_ext = np.linalg.inv(ext_base @ trajectory[snum])
+        world_ext = ext_base @ trajectory[snum]
+        #world_ext = mswitch(world_ext,2,0)
 
         pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
             rgbd_image, intrinsic, world_ext @ extrinsic,
+            #rgbd_image, intrinsic, extrinsic,
             #rgbd_image, intrinsic, world_ext,
             )
  
         pcd.transform([[1,0,0,0],[0,-1,0,0],[0,0,1,0],[0,0,0,1]])
+
+        #pcd = pcd.voxel_down_sample(voxel_size=2.)
+        pcd = pcd.uniform_down_sample(every_k_points=5)
 
         cl, ind = pcd.remove_statistical_outlier(
                 nb_neighbors=10, std_ratio=1.0)
