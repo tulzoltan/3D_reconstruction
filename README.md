@@ -1,6 +1,6 @@
 # 3D_reconstruction
 
-Set up the conda environment using the yaml file
+Set up the conda environment using the .yaml file
 
 [] conda env create --file conda_environment_ptcv.yaml
 
