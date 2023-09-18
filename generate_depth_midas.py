@@ -7,6 +7,10 @@ import cv2
 import torch
 import matplotlib.pyplot as plt
 
+#import utils
+#from midas.model_loader import default_models, load_model
+#from run import process
+
 from calibration import Calibration
 
 
@@ -52,12 +56,9 @@ class DepthEstimator_midas:
                         self.cal_dir, "calibration.json", self.cameras)
 
     def load_model(self, model_type):
-        if not model_type in ["MiDaS_small", "DPT_Hybrid", "DPT_Large"]:
-            import sys
-            sys.exit("Invalid model name")
-        
         #Load model
         self.midas = torch.hub.load("intel-isl/MiDaS", model_type)
+        #self.model, self.transform, self.net_w, self.net_h = load_model(self.device, model_path, model_type, False, height, square)
 
         #Move model to GPU if available
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -67,10 +68,11 @@ class DepthEstimator_midas:
         #Load transforms
         midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
 
-        if model_type == "DPT_Large" or model_type == "DPT_Hybrid":
-            self.transform = midas_transforms.dpt_transform
-        else:
+        if model_type == "MiDaS_small":
             self.transform = midas_transforms.small_transform
+        #elif model_type == "DPT_Hybrid" or model_type == "DPT_Large":
+        else:
+            self.transform = midas_transforms.dpt_transform
 
     def load_image(self, camera_name, serial_number):
         #Read image file
@@ -102,9 +104,22 @@ class DepthEstimator_midas:
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = self.transform(image).to(self.device)
 
+        #original_image = utils.read_image(image_name) #in [0, 1]
+        #image_size = image.shape[1::-1]
+        #image = self.transform({"image": image})["image"]
+        #image = image.to(device) #?
+
         #Predict depth map
         with torch.no_grad():
             prediction = self.midas(image)
+            #prediction = process(self.device,
+            #                     self.model,
+            #                     "DPT_BEiT_L_512",
+            #                     image,
+            #                     (self.net_w, self.net_h),
+            #                     image_size,
+            #                     False,
+            #                     False)
 
             prediction = torch.nn.functional.interpolate(
                         prediction.unsqueeze(1),
@@ -127,16 +142,17 @@ def main():
     dat_dir = os.path.join(os.getcwd(), "datafiles/20220422-133712-00.40.45-00.41.45@Jarvis/sensor")
 
     main_cam_name = "F_MIDLONGRANGECAM_CL"
-    other_cam_names = ["B_MIDRANGECAM_C",
-                       "F_MIDRANGECAM_C",
-                       "M_FISHEYE_L",
-                       "M_FISHEYE_R"]
+    #other_cam_names = ["B_MIDRANGECAM_C",
+    #                   "F_MIDRANGECAM_C",
+    #                   "M_FISHEYE_L",
+    #                   "M_FISHEYE_R"]
     other_cam_names = ["B_MIDRANGECAM_C", "F_MIDRANGECAM_C"]
 
     #Set up generator
     generator = DepthEstimator_midas(dat_dir, main_cam_name, other_cam_names)
 
     #Load MiDaS model for depth estimation
+    #model_type = "DPT_BEiT_L_512"
     model_type = "DPT_Large" # MiDaS v3 - Large
     #model_type = "DPT_Hybrid" # MiDaS v3 - hybrid
     #model_type = "MiDaS_small" # MiDaS v2.1 - small
@@ -149,9 +165,9 @@ def main():
             os.mkdir(out_dir)
         for snum in generator.serials:
             count+=1
-            if count < 800: #840 - 850
+            if count < 800:
                 continue
-            elif count > 850:
+            elif count > 910:
                 break
             else:
                 print(count, snum)

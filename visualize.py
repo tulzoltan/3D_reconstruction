@@ -7,12 +7,6 @@ from calibration import Calibration
 from generate_depth_midas import get_serial_list
 
 
-def mswitch(M, i, j):
-    M[[i,j],:] = M[[j,i],:]
-    M[:,[i,j]] = M[:,[j,i]]
-    return M
-
-
 def display_inlier_outlier(cloud, ind):
     inlier_cloud = cloud.select_by_index(ind)
     outlier_cloud = cloud.select_by_index(ind, invert=True)
@@ -65,17 +59,14 @@ if __name__ == "__main__":
             os.path.join(ego_dir, "egomotion2.json"), serials)
 
     pcds = []
+    ext_base = np.linalg.inv(trajectory[serials[0]])
     counter = 0
-    ext_base = None
     for snum in serials:
         counter += 1
-        if counter < 40:
+        if counter < 20:
             continue
-        if counter > 41:
+        elif counter > 25:
             break
-        if counter == 40:
-            ext_base = np.linalg.inv(trajectory[snum])
-        #serial = "0037532"
         img_name = camera_name+"_"+snum+"_env"
 
         #Load color and depth images
@@ -87,22 +78,19 @@ if __name__ == "__main__":
         scale = 0.0022 #using info from basler website
 
         rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
-            color_raw, depth_raw, scale, 3000./scale, False
+            color_raw, depth_raw, scale, 0.6/scale, False
             )
 
         world_ext = ext_base @ trajectory[snum]
-        #world_ext = mswitch(world_ext,2,0)
 
         pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
             rgbd_image, intrinsic, world_ext @ extrinsic,
-            #rgbd_image, intrinsic, extrinsic,
-            #rgbd_image, intrinsic, world_ext,
             )
  
         pcd.transform([[1,0,0,0],[0,-1,0,0],[0,0,1,0],[0,0,0,1]])
 
         #pcd = pcd.voxel_down_sample(voxel_size=2.)
-        pcd = pcd.uniform_down_sample(every_k_points=5)
+        pcd = pcd.uniform_down_sample(every_k_points=10)
 
         cl, ind = pcd.remove_statistical_outlier(
                 nb_neighbors=10, std_ratio=1.0)
