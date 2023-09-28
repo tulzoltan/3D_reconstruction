@@ -42,15 +42,16 @@ def DownSample_Image(image, reduction_factor):
 
 
 class RayMaker():
-    def __init__(self, width, height):
-        self.ones = np.ones((height, width))
+    def __init__(self, width, height, fx, fy):
+        #self.ones = np.ones((height, width))
 
         #ray directions in camera coordinate system
         u, v = np.meshgrid(np.arange(width),
                        np.arange(height))
-        dx = (u - cx) / fx
-        dy = (v - cy) / fy
-        dz = self.ones
+        dx = (u - width/2.) / fx
+        dy = (v - height/2.) / fy
+        dz = np.ones_like(dx)
+        #dz = self.ones
 
         #normalize
         dnorm = np.sqrt(dx**2 + dy**2 + dz**2)
@@ -69,11 +70,23 @@ class RayMaker():
                              self.ray_dirs_cam)
 
         #ray origins
-        ray_oris = np.dstack([t[0]*self.ones,
-                              t[1]*self.ones,
-                              t[2]*self.ones])
+        ray_oris = np.broadcast_to(t, ray_dirs.shape)
+        #ray_oris = np.dstack([t[0]*self.ones,
+        #                      t[1]*self.ones,
+        #                      t[2]*self.ones])
 
         return ray_oris, ray_dirs
+
+
+def load_image(img_dir, camera_name, snum, CamCal, reduction_factor=0):
+    img_name = camera_name + "_" + snum + ".jpg"
+    img = cv2.imread(
+            os.path.join(img_dir, camera_name, img_name))
+    img = CamCal.undistort(img, camera_name)
+    img = DownSample_Image(img, reduction_factor)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = cv2.normalize(img, None, 0, 1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+    return img
 
 
 if __name__ == "__main__":
@@ -100,8 +113,8 @@ if __name__ == "__main__":
 
     fx = CamCal.Intrinsic_UD[camera_name][0,0]
     fy = CamCal.Intrinsic_UD[camera_name][1,1]
-    cx = CamCal.Intrinsic_UD[camera_name][0,2]
-    cy = CamCal.Intrinsic_UD[camera_name][1,2]
+    #cx = CamCal.Intrinsic_UD[camera_name][0,2]
+    #cy = CamCal.Intrinsic_UD[camera_name][1,2]
     extrinsic = CamCal.Extrinsic[camera_name]
 
     #Get serial numbers
@@ -113,24 +126,21 @@ if __name__ == "__main__":
             os.path.join(ego_dir, "egomotion2.json"), serials)
 
     #Make rays
-    rays = RayMaker(width=W, height=H)
+    rays = RayMaker(width=W, height=H, fx=fx, fy=fy)
 
     ext_base = np.linalg.inv(trajectory[serials[0]])
 
     chunks = 20
-    jump = 3 #5
+    jump = 1 #3, 5
     chunk_size = len(serials) // chunks
     for chunk_ind in range(chunks):
-        if chunk_ind != chunks-2:
+        if chunk_ind != chunks-3:
             continue
         lower = chunk_ind * chunk_size
         upper = (chunk_ind + 1) * chunk_size
 
-        ds_train = np.empty((chunk_size//jump*H*W, 9),
-                             dtype=np.float32)
-
-        #ds_test = np.empty((chunk_size//jump*H*W, 9),
-        #                   dtype=np.float32)
+        dataset = np.empty((chunk_size//jump*H*W, 9),
+                            dtype=np.float32)
 
         img_ind_1 = 0
         for sub_ind in range(lower, upper, jump):
@@ -141,29 +151,21 @@ if __name__ == "__main__":
             ray_oris, ray_dirs = rays.make(ext)
 
             #load image
-            img_name = camera_name + "_" + snum + ".jpg"
-            img = cv2.imread(
-                    os.path.join(img_dir, camera_name, img_name))
-            img = CamCal.undistort(img, camera_name)
-            img = DownSample_Image(img, red_fac)
-            img = cv2.normalize(img, None, 0, 1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_64F)
+            img = load_image(img_dir, camera_name,
+                             snum, CamCal, 
+                             reduction_factor=red_fac)
 
             #combine
             pixels = np.hstack([ray_oris.reshape(-1, 3),
                                 ray_dirs.reshape(-1, 3),
                                 img.reshape(-1, 3)])
 
-            ds_train[img_ind_1*H*W: (img_ind_1 + 1)*H*W] = pixels
+            dataset[img_ind_1*H*W: (img_ind_1 + 1)*H*W] = pixels
             img_ind_1 += 1
 
-        train_name = "pixdat_" + camera_name + "_" + str(chunk_ind) + ".pkl"
-        with open(train_name, "wb") as file:
-            pickle.dump(ds_train, file)
+        output_name = "pixdat_" + camera_name + "_" + str(chunk_ind) + ".pkl"
+        with open(output_name, "wb") as file:
+            pickle.dump(dataset, file)
 
-        #test_name = "test_" + camera_name + "_" + str(chunk_ind) + ".pkl"
-        #with open(test_name, "wb") as file:
-        #    pickle.dump(ds_test, file)
-
-        print(f"{img_ind_1} images saved to {train_name}")
-        print(f"number of pixels: {len(ds_train)}")
-        #print(f"{img_ind_2} images saved to {test_name}")
+        print(f"{img_ind_1} images saved to {output_name}")
+        print(f"number of pixels: {len(dataset)}")

@@ -152,7 +152,7 @@ def train(nerf_model, optimizer, scheduler, data_loader, device='cpu', hn=0, hf=
 
     training_loss = []
     for _ in tqdm(range(epochs)):
-        for batch in data_loader:
+        for batch in tqdm(data_loader):
             ray_oris = batch[:,  :3].to(device)
             ray_dirs = batch[:, 3:6].to(device)
             ground_truth_px_vals = batch[:, 6:].to(device)
@@ -188,6 +188,8 @@ def test(hn, hf, dataset, out_dir, device='cpu', chunk_size=10, img_index=0, n_b
     """
     ray_oris = dataset[img_index*H*W: (img_index+1)*H*W,  :3]
     ray_dirs = dataset[img_index*H*W: (img_index+1)*H*W, 3:6]
+    
+    orimg = dataset[img_index*H*W: (img_index+1)*H*W, 6:]
 
     data = []
     for i in range(int(np.ceil(H/chunk_size))):
@@ -199,9 +201,13 @@ def test(hn, hf, dataset, out_dir, device='cpu', chunk_size=10, img_index=0, n_b
         data.append(regenerated_px_vals)
 
     img = torch.cat(data).data.cpu().numpy().reshape(H, W, 3)
-    plt.figure()
-    plt.imshow(img)
-    plt.savefig(f"novel_views/img_{img_index}.png", bbox_inches="tight")
+    orimg = orimg.reshape(H, W, 3)
+    #plt.figure()
+    #plt.imshow(img)
+    f, ax = plt.subplots(2, 1)
+    ax[0].imshow(img)
+    ax[1].imshow(orimg)
+    plt.savefig(f"novel_views/img_{img_index}_N{hn}_F{hf}.png", bbox_inches="tight")
     plt.close()
 
 
@@ -214,12 +220,15 @@ if __name__ == "__main__":
 
     #parameters
     DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    HIDDEN_DIM = 16 #32, 256 #1st
+    HIDDEN_DIM = 64 #256 #1st
     HEIGHT = 477
     WIDTH = 909
-    BATCH_SIZE = 512 #1024
-    NUM_BINS = 48 #96, 192 #2nd
+    NEAR = 100
+    FAR = 800
+    BATCH_SIZE = 1024
+    NUM_BINS = 48 #192 #2nd
     EPOCHS = 1 #4, 16 #3rd
+
 
     camera_name = "F_MIDLONGRANGECAM_CL"
 
@@ -230,9 +239,10 @@ if __name__ == "__main__":
                         np.load(train_name,
                             allow_pickle=True))
     #test_name = "test_"+camera_name+"_18.pkl"
-    #test_dataset = torch.from_numpy(
+    test_dataset = torch.from_numpy(
     #                np.load(test_name,
-    #                    allow_pickle=True))
+                    np.load(train_name,
+                        allow_pickle=True)[2*HEIGHT*WIDTH: 3*HEIGHT*WIDTH])
     data_loader = DataLoader(train_dataset,
                              batch_size=BATCH_SIZE,
                              shuffle=True)
@@ -246,15 +256,16 @@ if __name__ == "__main__":
     #train model
     print("Commencing training ...")
     loss = train(model, model_optimizer, scheduler, data_loader,
-                 epochs=EPOCHS, device=DEVICE, hn=2, hf=6,
+                 epochs=EPOCHS, device=DEVICE, hn=NEAR, hf=FAR,
                  n_bins=NUM_BINS, H=HEIGHT, W=WIDTH)
 
     plt.plot(loss)
-    plt.show()
+    plt.savefig(f"novel_views/loss_N{NEAR}_F{FAR}", bbox_inches='tight')
+    plt.close()
 
     #test model
-    #print("Testing ...")
-    #for img_index in tqdm(range(5)):
-    #    test(hn=2, hf=6, dataset=test_dataset, out_dir=output_dir,
-    #            device=DEVICE, img_index=img_index, n_bins=NUM_BINS,
-    #            H=HEIGHT, W=WIDTH)
+    print("Testing ...")
+    for img_index in tqdm(range(1)):
+        test(hn=NEAR, hf=FAR, dataset=test_dataset, out_dir=output_dir,
+                device=DEVICE, img_index=img_index, n_bins=NUM_BINS,
+                H=HEIGHT, W=WIDTH)
