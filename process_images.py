@@ -105,17 +105,21 @@ if __name__ == "__main__":
     W = CamCal.width[camera_name]
     H = CamCal.height[camera_name]
 
+    intrinsic = CamCal.Intrinsic_UD[camera_name]
+    fx = intrinsic[0,0]
+    fy = intrinsic[1,1]
+    #cx = intrinsic[0,2]
+    #cy = intrinsic[1,2]
+    extrinsic = CamCal.Extrinsic[camera_name]
+
     #reduce for downsampled images
-    red_fac = 1
+    red_fac = 2
     for _ in range(red_fac):
         H = H // 2
         W = W // 2
-
-    fx = CamCal.Intrinsic_UD[camera_name][0,0]
-    fy = CamCal.Intrinsic_UD[camera_name][1,1]
-    #cx = CamCal.Intrinsic_UD[camera_name][0,2]
-    #cy = CamCal.Intrinsic_UD[camera_name][1,2]
-    extrinsic = CamCal.Extrinsic[camera_name]
+        fx = fx // 2
+        fy = fy // 2
+    print("image size (H, W): ", H, W)
 
     #Get serial numbers
     serials = get_serial_list(
@@ -134,8 +138,10 @@ if __name__ == "__main__":
     jump = 1 #3, 5
     chunk_size = len(serials) // chunks
     for chunk_ind in range(chunks):
-        if chunk_ind != chunks-3:
+        if chunk_ind < 3: #chunks-3
             continue
+        elif chunk_ind > 4: #chunks-2
+            break
         lower = chunk_ind * chunk_size
         upper = (chunk_ind + 1) * chunk_size
 
