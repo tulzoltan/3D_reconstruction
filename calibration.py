@@ -53,15 +53,14 @@ class Calibration():
                     _, _, self.width[cname], self.height[cname] = roi
 
                 #Extrinsic matrix
-                #self.Extrinsic[cname] = np.array(cdata["RT_sensor_from_body"])
-                self.Extrinsic[cname] = np.array(cdata["RT_body_from_sensor"])
+                self.Extrinsic[cname] = np.array(cdata["RT_sensor_from_body"])
+                #self.Extrinsic[cname] = np.array(cdata["RT_body_from_sensor"])
 
                 #Obstruction mask
                 fname = cdata["custom_vars"]["obstruction_mask_file"]
                 obs_mask = cv2.imread(
                         os.path.join(directory, vehicle_dir, fname))
                 self.ObstructionMask[cname] = self.undistort(obs_mask, cname)
-
 
     def undistort(self, img_in, cam_name):
         """Undistort and crop image, handle fisheye cameras separately"""
@@ -116,14 +115,16 @@ if __name__ == "__main__":
 
     #Load and undistort images
     for cname in camera_names:
-        #load image
-        img_file = img_dir + cname + "/" + cname + "_0037133.jpg"
-        img = cv2.imread(img_file)
+        frames = ["0037448", "0037133"]
+        for frame in frames:
+            #load image
+            img_file = img_dir + cname + "/" + cname + "_" +frame+".jpg"
+            img = cv2.imread(img_file)
 
-        #undistort image
-        dst = CamCal.undistort(img, cname)
-        cv2.imwrite(os.getcwd()+"/"+cname+"_1.png", dst)
+            #undistort image
+            dst = CamCal.undistort(img, cname)
+            cv2.imwrite(os.getcwd()+"/"+cname+"_"+frame+"_1.png", dst)
 
-        #original image for comparison
-        cv2.imwrite(os.getcwd()+"/"+cname+"_0.png", img)
+            #original image for comparison
+            cv2.imwrite(os.getcwd()+"/"+cname+"_"+frame+"_0.png", img)
 

@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -131,7 +132,7 @@ def render_rays(nerf_model, ray_oris, ray_dirs, hn=0, hf=0.5, n_bins=192):
     return pix_col
 
 
-def train(nerf_model, optimizer, scheduler, data_loader, device='cpu', hn=0, hf=1, epochs=int(1e5), n_bins=192, H=400, W=400):
+def train(nerf_model, optimizer, scheduler, data_loader, device='cpu', hn=0, hf=1, epochs=1, n_bins=192, H=400, W=400):
     """
     Parameters:
         nerf_model: NN model to be trained
@@ -202,17 +203,22 @@ def test(hn, hf, dataset, out_dir, device='cpu', chunk_size=10, img_index=0, n_b
 
     img = torch.cat(data).data.cpu().numpy().reshape(H, W, 3)
     orimg = orimg.reshape(H, W, 3)
-    #plt.figure()
-    #plt.imshow(img)
     f, ax = plt.subplots(2, 1)
     ax[0].imshow(img)
     ax[1].imshow(orimg)
-    plt.savefig(f"novel_views/DIFFimg_{img_index}_N{hn}_F{hf}.png", bbox_inches="tight")
+    plot_name = os.path.join(out_dir, f"IMG{img_index}_N{hn}_F{hf}.png")
+    plt.savefig(plot_name, bbox_inches="tight")
     plt.close()
 
 
 if __name__ == "__main__":
-    import os
+    import json
+    
+    with open("metadata.json") as mf:
+        meta = json.load(mf)
+        HEIGHT = meta["image_height"]
+        WIDTH = meta["image_width"]
+        datafiles = meta["file_names"]
 
     output_dir = os.path.join(os.getcwd(),"novel_views")
     if not os.path.exists(output_dir):
@@ -221,22 +227,23 @@ if __name__ == "__main__":
     #parameters
     DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     HIDDEN_DIM = 64 #256 #1st
-    HEIGHT = 238 #477
-    WIDTH = 454 #909
-    NEAR = 20
-    FAR = 4
+    NEAR = 1
+    FAR = 10
     BATCH_SIZE = 1024
     NUM_BINS = 48 #192 #2nd
     EPOCHS = 1 #4, 16 #3rd
+
     Qload = False
+    save_name = f"BASE_N{NEAR}_F{FAR}"
 
     camera_name = "F_MIDLONGRANGECAM_CL"
 
     #load data
     print("Loading dataset ...")
     dataset = np.empty((0, 9), dtype=np.float32)
-    for i in range(3,5): #17, 19
-        train_name = "pixdat_"+camera_name+"_"+str(i)+".pkl"
+    #for i in range(3,5):
+    #    train_name = "pixdat_"+camera_name+"_"+str(i)+".pkl"
+    for train_name in datafiles:
         dataset = np.vstack((dataset,
                              np.load(train_name,
                                      allow_pickle=True)))
@@ -249,34 +256,35 @@ if __name__ == "__main__":
     #set up NN model
     print("Loading neural network ...")
     model = NerfModel(hidden_dim=HIDDEN_DIM).to(DEVICE)
-    model_optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(model_optimizer, milestones=[2, 4, 8], gamma=0.5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[2, 4, 8], gamma=0.5)
 
 
     #train model
-    save_file = f"initial_N{NEAR}_F{FAR}.pth.tar"
+    save_file = os.path.join(os.getcwd(), save_name+".pth.tar")
 
     def load_checkpoint(checkpoint):
         model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
 
-    if Qload:
+    if Qload and os.path.exists(save_file):
         load_checkpoint(torch.load(save_file))
 
     print("Commencing training ...")
-    loss = train(model, model_optimizer, scheduler, data_loader,
+    loss = train(model, optimizer, scheduler, data_loader,
                  epochs=EPOCHS, device=DEVICE, hn=NEAR, hf=FAR,
                  n_bins=NUM_BINS, H=HEIGHT, W=WIDTH)
 
-    if not Qload:
-        checkpoint = {"state_dict": model.state_dict(),
-                      "optimizer" : model_optimizer.state_dict(),
-                      "scheduler" : scheduler.state_dict()}
-        torch.save(checkpoint, save_file)
+    #save progress
+    checkpoint = {"state_dict": model.state_dict(),
+                  "optimizer" : optimizer.state_dict(),
+                  "scheduler" : scheduler.state_dict()}
+    torch.save(checkpoint, save_file)
 
     plt.plot(loss)
-    plt.savefig(f"novel_views/DIFFloss_N{NEAR}_F{FAR}", bbox_inches='tight')
+    fig_name = os.path.join(output_dir, save_name+"_loss")
+    plt.savefig(fig_name, bbox_inches='tight')
     plt.close()
 
     #test model

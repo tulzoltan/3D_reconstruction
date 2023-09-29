@@ -90,12 +90,16 @@ def load_image(img_dir, camera_name, snum, CamCal, reduction_factor=0):
 
 
 if __name__ == "__main__":
+    import json
+
     #Path components
     dat_dir = os.path.join(os.getcwd(), "datafiles/20220422-133712-00.40.45-00.41.45@Jarvis/sensor")
 
     img_dir = os.path.join(dat_dir, "camera")
     cal_dir = os.path.join(dat_dir, "calibration")
     ego_dir = os.path.join(dat_dir, "gnssins")
+
+    meta_file = os.path.join(os.getcwd(), "metadata.json")
 
     camera_name = "F_MIDLONGRANGECAM_CL"
 
@@ -119,7 +123,6 @@ if __name__ == "__main__":
         W = W // 2
         fx = fx // 2
         fy = fy // 2
-    print("image size (H, W): ", H, W)
 
     #Get serial numbers
     serials = get_serial_list(
@@ -137,6 +140,7 @@ if __name__ == "__main__":
     chunks = 20
     jump = 1 #3, 5
     chunk_size = len(serials) // chunks
+    output_file_list = []
     for chunk_ind in range(chunks):
         if chunk_ind < 3: #chunks-3
             continue
@@ -166,12 +170,23 @@ if __name__ == "__main__":
                                 ray_dirs.reshape(-1, 3),
                                 img.reshape(-1, 3)])
 
-            dataset[img_ind_1*H*W: (img_ind_1 + 1)*H*W] = pixels
+            dataset[img_ind_1*H*W: (img_ind_1+1)*H*W] = pixels
             img_ind_1 += 1
 
         output_name = "pixdat_" + camera_name + "_" + str(chunk_ind) + ".pkl"
+        output_file_list.append(output_name)
         with open(output_name, "wb") as file:
             pickle.dump(dataset, file)
 
         print(f"{img_ind_1} images saved to {output_name}")
         print(f"number of pixels: {len(dataset)}")
+
+    meta_dict = {"image_height": H,
+                 "image_width": W,
+                 "focal_x": fx,
+                 "focal_y": fy,
+                 "reduction_factor": red_fac,
+                 "file_names": output_file_list}
+
+    with open(meta_file, "w") as mf:
+        json.dump(meta_dict, mf)
