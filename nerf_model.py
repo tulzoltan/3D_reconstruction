@@ -132,7 +132,7 @@ def render_rays(nerf_model, ray_oris, ray_dirs, hn=0, hf=0.5, n_bins=192):
     return pix_col
 
 
-def train(nerf_model, optimizer, scheduler, data_loader, device='cpu', hn=0, hf=1, epochs=1, n_bins=192, H=400, W=400):
+def train(nerf_model, optimizer, scheduler, data_loader, device='cpu', hn=0, hf=1, epochs=1, n_bins=192):
     """
     Parameters:
         nerf_model: NN model to be trained
@@ -144,8 +144,6 @@ def train(nerf_model, optimizer, scheduler, data_loader, device='cpu', hn=0, hf=
         hf: distance from far plane
         epochs: number of training epochs
         n_bins: number of bins used for density estimation
-        H: image height
-        W: image width
 
     Returns:
         training_loss: training loss for each epoch
@@ -206,84 +204,111 @@ def test(hn, hf, dataset, out_dir, device='cpu', chunk_size=10, img_index=0, n_b
     f, ax = plt.subplots(2, 1)
     ax[0].imshow(img)
     ax[1].imshow(orimg)
-    plot_name = os.path.join(out_dir, f"IMG{img_index}_N{hn}_F{hf}.png")
+    plot_name = os.path.join(out_dir, f"multicamIMG{img_index}_N{hn}_F{hf}.png")
     plt.savefig(plot_name, bbox_inches="tight")
     plt.close()
 
 
+def set_path(new_dir, root=os.getcwd()):
+    new_path = os.path.join(root, new_dir)
+    if not os.path.exists(new_path):
+        os.mkdir(new_path)
+    return new_path
+    
+
 if __name__ == "__main__":
     import json
-    
+
+    HEIGHT = {}
+    WIDTH = {}
+    datafiles = {}
     with open("metadata.json") as mf:
         meta = json.load(mf)
-        HEIGHT = meta["image_height"]
-        WIDTH = meta["image_width"]
-        datafiles = meta["file_names"]
+        camera_names = list(meta.keys())
+        for cname in camera_names:
+            HEIGHT[cname] = meta[cname]["image_height"]
+            WIDTH[cname] = meta[cname]["image_width"]
+            datafiles[cname] = meta[cname]["file_names"]
 
-    output_dir = os.path.join(os.getcwd(),"novel_views")
-    if not os.path.exists(output_dir):
-        os.mkdir(output_dir)
+    #output image directory
+    output_dir = set_path("novel_views")
+
+    #model weight directory
+    wgt_dir = set_path("weights")
 
     #parameters
     DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    HIDDEN_DIM = 64 #256 #1st
+    HIDDEN_DIM = 128 #256 #1st
     NEAR = 1
-    FAR = 10
+    FAR = 20
     BATCH_SIZE = 1024
-    NUM_BINS = 48 #192 #2nd
+    NUM_BINS = 96 #192 #2nd
     EPOCHS = 1 #4, 16 #3rd
 
     Qload = False
-    save_name = f"BASE_N{NEAR}_F{FAR}"
+    #save_name = f"multicamCONT{EPOCHS}_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
+    #load_name = f"multicamBASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
+    save_name = f"multicamBASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
 
-    camera_name = "F_MIDLONGRANGECAM_CL"
 
     #load data
     print("Loading dataset ...")
     dataset = np.empty((0, 9), dtype=np.float32)
-    #for i in range(3,5):
-    #    train_name = "pixdat_"+camera_name+"_"+str(i)+".pkl"
-    for train_name in datafiles:
-        dataset = np.vstack((dataset,
-                             np.load(train_name,
-                                     allow_pickle=True)))
-    test_dataset = torch.from_numpy(
-                    dataset[50*HEIGHT*WIDTH: 51*HEIGHT*WIDTH])
+    for cname in camera_names:
+        for train_name in datafiles[cname]:
+            dataset = np.vstack((dataset,
+                                 np.load(train_name,
+                                         allow_pickle=True)))
+        print(f"{cname} data loaded")
+
     data_loader = DataLoader(torch.from_numpy(dataset),
                              batch_size=BATCH_SIZE,
                              shuffle=True)
 
+    #test image
+    tH = HEIGHT[camera_names[0]]
+    tW = WIDTH[camera_names[0]]
+    test_dataset = torch.from_numpy(dataset[0*tH*tW: 1*tH*tW])
+    
     #set up NN model
     print("Loading neural network ...")
     model = NerfModel(hidden_dim=HIDDEN_DIM).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[2, 4, 8], gamma=0.5)
 
-
-    #train model
-    save_file = os.path.join(os.getcwd(), save_name+".pth.tar")
-
+    #load weights
     def load_checkpoint(checkpoint):
         model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
 
-    if Qload and os.path.exists(save_file):
-        load_checkpoint(torch.load(save_file))
+    if Qload:
+        load_file = os.path.join(wgt_dir, load_name+".pth.tar")
+        if os.path.exists(load_file):
+            load_checkpoint(torch.load(load_file))
 
+    #train model
     print("Commencing training ...")
     loss = train(model, optimizer, scheduler, data_loader,
                  epochs=EPOCHS, device=DEVICE, hn=NEAR, hf=FAR,
-                 n_bins=NUM_BINS, H=HEIGHT, W=WIDTH)
+                 n_bins=NUM_BINS)
 
     #save progress
+    save_file = os.path.join(wgt_dir, save_name+".pth.tar")
     checkpoint = {"state_dict": model.state_dict(),
                   "optimizer" : optimizer.state_dict(),
                   "scheduler" : scheduler.state_dict()}
     torch.save(checkpoint, save_file)
 
+    plt.figure()
     plt.plot(loss)
-    fig_name = os.path.join(output_dir, save_name+"_loss")
+    if Qload:
+        plt.title(f"Loss in {EPOCHS} epochs")
+    elif EPOCHS > 1:
+        plt.title(f"Loss in first {EPOCHS} epochs")
+    else:
+        plt.title("Loss in first epoch")
+    fig_name = os.path.join(output_dir, save_name+(f"_loss_EP{EPOCHS}"))
     plt.savefig(fig_name, bbox_inches='tight')
     plt.close()
 
@@ -292,4 +317,4 @@ if __name__ == "__main__":
     for img_index in tqdm(range(1)):
         test(hn=NEAR, hf=FAR, dataset=test_dataset, out_dir=output_dir,
                 device=DEVICE, img_index=img_index, n_bins=NUM_BINS,
-                H=HEIGHT, W=WIDTH)
+                H=tH, W=tW)

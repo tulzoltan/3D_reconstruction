@@ -22,6 +22,7 @@ class Calibration():
         self.Distortion = {}
         self.Extrinsic = {}
         self.ObstructionMask = {}
+        self.bottom_crop = {}
 
         with open(calibration_file) as in_file:
             data = json.load(in_file)
@@ -60,7 +61,14 @@ class Calibration():
                 fname = cdata["custom_vars"]["obstruction_mask_file"]
                 obs_mask = cv2.imread(
                         os.path.join(directory, vehicle_dir, fname))
-                self.ObstructionMask[cname] = self.undistort(obs_mask, cname)
+                rule = obs_mask < 255/2
+                obs_mask[rule] = 0
+                obs_mask[~rule] = 1
+                obs_mask = self.undistort(obs_mask, cname)
+                self.ObstructionMask[cname] = obs_mask
+                self.bottom_crop[cname] = int(np.argmax(np.any(obs_mask[::-1], axis=(1, 2))))
+                if "FISHEYE" not in cname:
+                    self.height[cname] -= self.bottom_crop[cname]
 
     def undistort(self, img_in, cam_name):
         """Undistort and crop image, handle fisheye cameras separately"""
@@ -91,10 +99,26 @@ class Calibration():
                        borderMode=cv2.BORDER_CONSTANT)
 
             # crop image
-            x, y, w, h = self.Adjust_UD[cam_name]
-            img_out = img_out[y:y+h, x:x+w]
+            #x, y, w, h = self.Adjust_UD[cam_name]
+            #img_out = img_out[y:y+h-self.bottom_crop[cam_name], x:x+w]
 
         return img_out
+
+
+    def crop_image(self, img_in, cam_name):
+        if "FISHEYE" not in cam_name:
+            x, y, w, h = self.Adjust_UD[cam_name]
+            img_out = img_in[y:y+h, x:x+w]
+
+            #use obstruction masks
+            bottom_crop = img_out.shape[0] - self.bottom_crop[cam_name]
+            img_out = img_out[:bottom_crop]
+
+            return img_out
+
+        else:
+            return img_in
+
 
 
 if __name__ == "__main__":
@@ -111,11 +135,17 @@ if __name__ == "__main__":
     cal_dir = dat_dir + "calibration/"
 
     #get intrinsic matrix and distortion parameters
-    CamCal = Calibration(cal_dir,"calibration.json", camera_names)
+    CamCal = Calibration(cal_dir, "calibration.json", camera_names)
 
     #Load and undistort images
     for cname in camera_names:
-        frames = ["0037448", "0037133"]
+        print(cname, CamCal.width[cname], CamCal.height[cname])
+
+        mask = CamCal.ObstructionMask[cname]
+        x2 = np.argmax(np.all(mask[::-1], axis=(1,2)))
+
+        frames = ["0037448"]
+        #frames = ["0037448", "0037133"]
         for frame in frames:
             #load image
             img_file = img_dir + cname + "/" + cname + "_" +frame+".jpg"
@@ -124,6 +154,8 @@ if __name__ == "__main__":
             #undistort image
             dst = CamCal.undistort(img, cname)
             cv2.imwrite(os.getcwd()+"/"+cname+"_"+frame+"_1.png", dst)
+            dst = CamCal.crop_image(dst, cname)
+            cv2.imwrite(os.getcwd()+"/"+cname+"_"+frame+"_2.png", dst)
 
             #original image for comparison
             cv2.imwrite(os.getcwd()+"/"+cname+"_"+frame+"_0.png", img)

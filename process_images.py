@@ -23,7 +23,7 @@ def get_egomotion(file_name, serials):
     with open(file_name, "r") as file:
         data = json.load(file)
 
-    short = { snum: np.array(data[s]["RT_ECEF_body"]) for s, snum in zip(nol0, serials) }
+    short = { snum: {"RT": np.array(data[s]["RT_ECEF_body"]), "time": data[s]["time_host"]} for s, snum in zip(nol0, serials) }
 
     return short
 
@@ -43,15 +43,12 @@ def DownSample_Image(image, reduction_factor):
 
 class RayMaker():
     def __init__(self, width, height, fx, fy):
-        #self.ones = np.ones((height, width))
-
         #ray directions in camera coordinate system
         u, v = np.meshgrid(np.arange(width),
                        np.arange(height))
         dx = (u - width/2.) / fx
         dy = (v - height/2.) / fy
         dz = np.ones_like(dx)
-        #dz = self.ones
 
         #normalize
         dnorm = np.sqrt(dx**2 + dy**2 + dz**2)
@@ -71,27 +68,33 @@ class RayMaker():
 
         #ray origins
         ray_oris = np.broadcast_to(t, ray_dirs.shape)
-        #ray_oris = np.dstack([t[0]*self.ones,
-        #                      t[1]*self.ones,
-        #                      t[2]*self.ones])
 
         return ray_oris, ray_dirs
 
 
 def load_image(img_dir, camera_name, snum, CamCal, reduction_factor=0):
+    #load
     img_name = camera_name + "_" + snum + ".jpg"
     img = cv2.imread(
             os.path.join(img_dir, camera_name, img_name))
+
+    #undistort
     img = CamCal.undistort(img, camera_name)
+
+    #crop obstruction
+    img = CamCal.crop_image(img, camera_name)
+
+    #downsample
     img = DownSample_Image(img, reduction_factor)
+
+    #convert to RGB and normalize
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = cv2.normalize(img, None, 0, 1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+
     return img
 
 
 if __name__ == "__main__":
-    import json
-
     #Path components
     dat_dir = os.path.join(os.getcwd(), "datafiles/20220422-133712-00.40.45-00.41.45@Jarvis/sensor")
 
@@ -100,93 +103,108 @@ if __name__ == "__main__":
     ego_dir = os.path.join(dat_dir, "gnssins")
 
     meta_file = os.path.join(os.getcwd(), "metadata.json")
+    meta_dict = {}
 
-    camera_name = "F_MIDLONGRANGECAM_CL"
+    camera_names = ["F_MIDLONGRANGECAM_CL",
+                    "F_MIDRANGECAM_C"]
+    #camera_names = ["F_MIDLONGRANGECAM_CL"]
 
     #Get intrinsic and extrinsic matrices
-    CamCal = Calibration(cal_dir, "calibration.json", [camera_name])
-
-    W = CamCal.width[camera_name]
-    H = CamCal.height[camera_name]
-
-    intrinsic = CamCal.Intrinsic_UD[camera_name]
-    fx = intrinsic[0,0]
-    fy = intrinsic[1,1]
-    #cx = intrinsic[0,2]
-    #cy = intrinsic[1,2]
-    extrinsic = CamCal.Extrinsic[camera_name]
-
-    #reduce for downsampled images
-    red_fac = 2
-    for _ in range(red_fac):
-        H = H // 2
-        W = W // 2
-        fx = fx // 2
-        fy = fy // 2
+    CamCal = Calibration(cal_dir, "calibration.json", camera_names)
 
     #Get serial numbers
     serials = get_serial_list(
-            os.path.join(img_dir, camera_name, "*.jpg"), 0)
+            os.path.join(img_dir, camera_names[0], "*.jpg"))
+    print(f"File serial numbers obtained for {camera_names[0]}")
+
+    for i in range(1,len(camera_names)):
+        check = get_serial_list(
+                os.path.join(img_dir, camera_names[i], "*.jpg"))
+        print(f"Serial numbers match for {camera_names[i]}: {(check==serials).all()}")
 
     #Get egomotion data
     trajectory = get_egomotion(
             os.path.join(ego_dir, "egomotion2.json"), serials)
 
-    #Make rays
-    rays = RayMaker(width=W, height=H, fx=fx, fy=fy)
+    #matrix for setting initial position
+    ext_base = np.linalg.inv(trajectory[serials[0]]["RT"])
 
-    ext_base = np.linalg.inv(trajectory[serials[0]])
+    #reduction factor for downsampling images, 0 is no downsampling
+    red_fac = 2
 
+    #split images into chunks and iterate through them in jumps
     chunks = 20
-    jump = 1 #3, 5
+    jump = 3
     chunk_size = len(serials) // chunks
-    output_file_list = []
-    for chunk_ind in range(chunks):
-        if chunk_ind < 3: #chunks-3
-            continue
-        elif chunk_ind > 4: #chunks-2
-            break
-        lower = chunk_ind * chunk_size
-        upper = (chunk_ind + 1) * chunk_size
 
-        dataset = np.empty((chunk_size//jump*H*W, 9),
-                            dtype=np.float32)
 
-        img_ind_1 = 0
-        for sub_ind in range(lower, upper, jump):
-            snum = serials[sub_ind]
-            ext = ext_base @ trajectory[snum] @ extrinsic
+    #loop over cameras
+    for camera_name in camera_names:
+        print(f"processing images for {camera_name} ...")
+        W = CamCal.width[camera_name]
+        H = CamCal.height[camera_name]
+        fx = CamCal.Intrinsic_UD[camera_name][0,0]
+        fy = CamCal.Intrinsic_UD[camera_name][1,1]
+        extrinsic = CamCal.Extrinsic[camera_name]
 
-            #get ray origins and directions
-            ray_oris, ray_dirs = rays.make(ext)
+        #reduce for downsampled images
+        for _ in range(red_fac):
+            H = H // 2
+            W = W // 2
+            fx = fx // 2
+            fy = fy // 2
 
-            #load image
-            img = load_image(img_dir, camera_name,
-                             snum, CamCal, 
-                             reduction_factor=red_fac)
+        #Make rays
+        rays = RayMaker(width=W, height=H, fx=fx, fy=fy)
 
-            #combine
-            pixels = np.hstack([ray_oris.reshape(-1, 3),
-                                ray_dirs.reshape(-1, 3),
-                                img.reshape(-1, 3)])
+        output_file_list = []
+        for chunk_ind in range(chunks):
+            if chunk_ind < 3: #chunks-3
+                continue
+            elif chunk_ind > 4: #chunks-2
+                break
+            lower = chunk_ind * chunk_size
+            upper = (chunk_ind + 1) * chunk_size
 
-            dataset[img_ind_1*H*W: (img_ind_1+1)*H*W] = pixels
-            img_ind_1 += 1
+            dataset = np.empty((chunk_size//jump*H*W, 9),
+                                dtype=np.float32)
 
-        output_name = "pixdat_" + camera_name + "_" + str(chunk_ind) + ".pkl"
-        output_file_list.append(output_name)
-        with open(output_name, "wb") as file:
-            pickle.dump(dataset, file)
+            img_ind_1 = 0
+            for sub_ind in range(lower, upper, jump):
+                snum = serials[sub_ind]
+                ext = ext_base @ trajectory[snum]["RT"] @ extrinsic
 
-        print(f"{img_ind_1} images saved to {output_name}")
-        print(f"number of pixels: {len(dataset)}")
+                #get ray origins and directions
+                ray_oris, ray_dirs = rays.make(ext)
 
-    meta_dict = {"image_height": H,
-                 "image_width": W,
-                 "focal_x": fx,
-                 "focal_y": fy,
-                 "reduction_factor": red_fac,
-                 "file_names": output_file_list}
+                #load image
+                img = load_image(img_dir, camera_name,
+                                 snum, CamCal, 
+                                 reduction_factor=red_fac)
+
+                #combine
+                pixels = np.hstack([ray_oris.reshape(-1, 3),
+                                    ray_dirs.reshape(-1, 3),
+                                    img.reshape(-1, 3)])
+
+                dataset[img_ind_1*H*W: (img_ind_1+1)*H*W] = pixels
+                img_ind_1 += 1
+
+            output_name = "pixdat_" + camera_name + "_" + str(chunk_ind) + ".pkl"
+            output_file_list.append(output_name)
+            with open(output_name, "wb") as file:
+                pickle.dump(dataset, file)
+
+            print(f"{img_ind_1} images saved to {output_name}")
+            print(f"number of pixels: {len(dataset)}")
+
+        meta_dict[camera_name] = {
+                            "image_height": H,
+                            "image_width": W,
+                            "focal_x": fx,
+                            "focal_y": fy,
+                            "reduction_factor": red_fac,
+                            "file_names": output_file_list}
 
     with open(meta_file, "w") as mf:
         json.dump(meta_dict, mf)
