@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
     camera_names = ["F_MIDLONGRANGECAM_CL",
                     "F_MIDRANGECAM_C"]
-    #camera_names = ["F_MIDLONGRANGECAM_CL"]
+    camera_names = ["F_MIDLONGRANGECAM_CL"]
 
     #Get intrinsic and extrinsic matrices
     CamCal = Calibration(cal_dir, "calibration.json", camera_names)
@@ -130,21 +130,25 @@ if __name__ == "__main__":
     ext_base = np.linalg.inv(trajectory[serials[0]]["RT"])
 
     #reduction factor for downsampling images, 0 is no downsampling
-    red_fac = 2
+    red_fac = 1
 
     #split images into chunks and iterate through them in jumps
     chunks = 20
-    jump = 3
+    jump = 1
     chunk_size = len(serials) // chunks
 
 
     #loop over cameras
     for camera_name in camera_names:
         print(f"processing images for {camera_name} ...")
-        W = CamCal.width[camera_name]
-        H = CamCal.height[camera_name]
-        fx = CamCal.Intrinsic_UD[camera_name][0,0]
-        fy = CamCal.Intrinsic_UD[camera_name][1,1]
+        #W = CamCal.width[camera_name]
+        #H = CamCal.height[camera_name]
+        #fx = CamCal.Intrinsic_UD[camera_name][0,0]
+        #fy = CamCal.Intrinsic_UD[camera_name][1,1]
+        H, W = CamCal.get_cropped_height_width(camera_name)
+        intrinsic = CamCal.get_intrinsic_crop(camera_name)
+        fx = intrinsic[0, 0]
+        fy = intrinsic[1, 1]
         extrinsic = CamCal.Extrinsic[camera_name]
 
         #reduce for downsampled images

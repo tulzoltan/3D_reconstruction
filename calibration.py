@@ -50,12 +50,12 @@ class Calibration():
                             (self.width[cname], self.height[cname]))
                 self.Intrinsic_UD[cname] = newCamMat
                 self.Adjust_UD[cname] = roi
-                if not "FISHEYE" in cname:
-                    _, _, self.width[cname], self.height[cname] = roi
+                #if not "FISHEYE" in cname:
+                #    _, _, self.width[cname], self.height[cname] = roi
 
                 #Extrinsic matrix
-                self.Extrinsic[cname] = np.array(cdata["RT_sensor_from_body"])
-                #self.Extrinsic[cname] = np.array(cdata["RT_body_from_sensor"])
+                #self.Extrinsic[cname] = np.array(cdata["RT_sensor_from_body"])
+                self.Extrinsic[cname] = np.array(cdata["RT_body_from_sensor"])
 
                 #Obstruction mask
                 fname = cdata["custom_vars"]["obstruction_mask_file"]
@@ -67,8 +67,40 @@ class Calibration():
                 obs_mask = self.undistort(obs_mask, cname)
                 self.ObstructionMask[cname] = obs_mask
                 self.bottom_crop[cname] = int(np.argmax(np.any(obs_mask[::-1], axis=(1, 2))))
-                if "FISHEYE" not in cname:
-                    self.height[cname] -= self.bottom_crop[cname]
+                #if "FISHEYE" not in cname:
+                #    self.height[cname] -= self.bottom_crop[cname]
+
+
+    def get_cropped_height_width(self, cam_name):
+        if "FISHEYE" not in cam_name:
+            w = self.Adjust_UD[cam_name][2]
+            h = self.Adjust_UD[cam_name][3] - self.bottom_crop[cam_name]
+            return h, w
+
+        else:
+            return self.height[cam_name], self.width[cam_name]
+
+
+    def get_intrinsic_crop(self, cam_name):
+        """  """
+        if "FISHEYE" not in cam_name:
+            #account for undistorting
+            x, y, w, h = self.Adjust_UD[cam_name]
+            intrinsic = np.copy(self.Intrinsic_UD[cam_name])
+            intrinsic[0, 0] *= w / self.width[cam_name]
+            intrinsic[1, 1] *= h / self.height[cam_name]
+            intrinsic[0, 2] = w/2
+            intrinsic[1, 2] = h/2
+
+            #account for obstruction
+            intrinsic[1, 1] *= 1 - self.bottom_crop[cam_name] / w
+            intrinsic[1, 2] -= self.bottom_crop[cam_name] / 2
+
+            return intrinsic
+
+        else:
+            return np.copy(self.Intrinsic[cam_name])
+
 
     def undistort(self, img_in, cam_name):
         """Undistort and crop image, handle fisheye cameras separately"""
@@ -140,6 +172,7 @@ if __name__ == "__main__":
     #Load and undistort images
     for cname in camera_names:
         print(cname, CamCal.width[cname], CamCal.height[cname])
+        print(CamCal.get_cropped_height_width(cname))
 
         mask = CamCal.ObstructionMask[cname]
         x2 = np.argmax(np.all(mask[::-1], axis=(1,2)))

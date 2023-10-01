@@ -1,4 +1,5 @@
 import os
+import cv2
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -150,6 +151,7 @@ def train(nerf_model, optimizer, scheduler, data_loader, device='cpu', hn=0, hf=
     """
 
     training_loss = []
+    counter = 0
     for _ in tqdm(range(epochs)):
         for batch in tqdm(data_loader):
             ray_oris = batch[:,  :3].to(device)
@@ -165,7 +167,16 @@ def train(nerf_model, optimizer, scheduler, data_loader, device='cpu', hn=0, hf=
             loss.backward()
             optimizer.step()
             training_loss.append(loss.item())
+
+            counter += 1
+            if counter == 100:
+                plt.plot(training_loss)
+                plt.show()
+                plt.close()
+
         scheduler.step()
+
+        plt.close()
 
     return training_loss
 
@@ -204,7 +215,7 @@ def test(hn, hf, dataset, out_dir, device='cpu', chunk_size=10, img_index=0, n_b
     f, ax = plt.subplots(2, 1)
     ax[0].imshow(img)
     ax[1].imshow(orimg)
-    plot_name = os.path.join(out_dir, f"multicamIMG{img_index}_N{hn}_F{hf}.png")
+    plot_name = os.path.join(out_dir, f"monocamIMG{img_index}_N{hn}_F{hf}.png")
     plt.savefig(plot_name, bbox_inches="tight")
     plt.close()
 
@@ -238,17 +249,17 @@ if __name__ == "__main__":
 
     #parameters
     DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    HIDDEN_DIM = 128 #256 #1st
+    HIDDEN_DIM = 256 #256 #1st
     NEAR = 1
     FAR = 20
     BATCH_SIZE = 1024
-    NUM_BINS = 96 #192 #2nd
+    NUM_BINS = 48 #192 #2nd
     EPOCHS = 1 #4, 16 #3rd
 
     Qload = False
-    #save_name = f"multicamCONT{EPOCHS}_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
-    #load_name = f"multicamBASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
-    save_name = f"multicamBASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
+    #save_name = f"monocamCONT{EPOCHS}_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
+    #load_name = f"monocamBASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
+    save_name = f"monocamBASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
 
 
     #load data
