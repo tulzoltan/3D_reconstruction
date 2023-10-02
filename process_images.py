@@ -42,12 +42,12 @@ def DownSample_Image(image, reduction_factor):
 
 
 class RayMaker():
-    def __init__(self, width, height, fx, fy):
+    def __init__(self, width, height, fx, fy, cx, cy):
         #ray directions in camera coordinate system
         u, v = np.meshgrid(np.arange(width),
                        np.arange(height))
-        dx = (u - width/2.) / fx
-        dy = (v - height/2.) / fy
+        dx = (u - cx) / fx
+        dy = (v - cy) / fy
         dz = np.ones_like(dx)
 
         #normalize
@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
     camera_names = ["F_MIDLONGRANGECAM_CL",
                     "F_MIDRANGECAM_C"]
-    camera_names = ["F_MIDLONGRANGECAM_CL"]
+    #camera_names = ["F_MIDLONGRANGECAM_CL"]
 
     #Get intrinsic and extrinsic matrices
     CamCal = Calibration(cal_dir, "calibration.json", camera_names)
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     ext_base = np.linalg.inv(trajectory[serials[0]]["RT"])
 
     #reduction factor for downsampling images, 0 is no downsampling
-    red_fac = 1
+    red_fac = 2
 
     #split images into chunks and iterate through them in jumps
     chunks = 20
@@ -141,14 +141,12 @@ if __name__ == "__main__":
     #loop over cameras
     for camera_name in camera_names:
         print(f"processing images for {camera_name} ...")
-        #W = CamCal.width[camera_name]
-        #H = CamCal.height[camera_name]
-        #fx = CamCal.Intrinsic_UD[camera_name][0,0]
-        #fy = CamCal.Intrinsic_UD[camera_name][1,1]
         H, W = CamCal.get_cropped_height_width(camera_name)
         intrinsic = CamCal.get_intrinsic_crop(camera_name)
         fx = intrinsic[0, 0]
         fy = intrinsic[1, 1]
+        cx = intrinsic[0, 2]
+        cy = intrinsic[1, 2]
         extrinsic = CamCal.Extrinsic[camera_name]
 
         #reduce for downsampled images
@@ -157,9 +155,11 @@ if __name__ == "__main__":
             W = W // 2
             fx = fx // 2
             fy = fy // 2
+            cx = cx // 2
+            cy = cy // 2
 
         #Make rays
-        rays = RayMaker(width=W, height=H, fx=fx, fy=fy)
+        rays = RayMaker(width=W, height=H, fx=fx, fy=fy, cx=cx, cy=cy)
 
         output_file_list = []
         for chunk_ind in range(chunks):

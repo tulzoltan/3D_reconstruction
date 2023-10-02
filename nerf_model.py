@@ -215,7 +215,7 @@ def test(hn, hf, dataset, out_dir, device='cpu', chunk_size=10, img_index=0, n_b
     f, ax = plt.subplots(2, 1)
     ax[0].imshow(img)
     ax[1].imshow(orimg)
-    plot_name = os.path.join(out_dir, f"monocamIMG{img_index}_N{hn}_F{hf}.png")
+    plot_name = os.path.join(out_dir, f"monocam_big_IMG{img_index}_N{hn}_F{hf}.png")
     plt.savefig(plot_name, bbox_inches="tight")
     plt.close()
 
@@ -241,6 +241,8 @@ if __name__ == "__main__":
             WIDTH[cname] = meta[cname]["image_width"]
             datafiles[cname] = meta[cname]["file_names"]
 
+    camera_names = ["F_MIDLONGRANGECAM_CL"]
+
     #output image directory
     output_dir = set_path("novel_views")
 
@@ -251,15 +253,15 @@ if __name__ == "__main__":
     DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     HIDDEN_DIM = 256 #256 #1st
     NEAR = 1
-    FAR = 20
+    FAR = 10
     BATCH_SIZE = 1024
-    NUM_BINS = 48 #192 #2nd
-    EPOCHS = 1 #4, 16 #3rd
+    NUM_BINS = 96 #192 #2nd
+    EPOCHS = 4 #4, 16 #3rd
 
     Qload = False
-    #save_name = f"monocamCONT{EPOCHS}_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
-    #load_name = f"monocamBASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
-    save_name = f"monocamBASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
+    #save_name = f"monocam_big_CONT{EPOCHS}_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
+    #load_name = f"monocam_big_BASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
+    save_name = f"monocam_big_BASE_HD{HIDDEN_DIM}_NB{NUM_BINS}_N{NEAR}_F{FAR}"
 
 
     #load data

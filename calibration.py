@@ -89,12 +89,14 @@ class Calibration():
             intrinsic = np.copy(self.Intrinsic_UD[cam_name])
             intrinsic[0, 0] *= w / self.width[cam_name]
             intrinsic[1, 1] *= h / self.height[cam_name]
-            intrinsic[0, 2] = w/2
-            intrinsic[1, 2] = h/2
+            #intrinsic[0, 2] = w/2
+            #intrinsic[1, 2] = h/2
+            intrinsic[0, 2] = cx - x
+            intrinsic[1, 2] = cy - y
 
             #account for obstruction
-            intrinsic[1, 1] *= 1 - self.bottom_crop[cam_name] / w
-            intrinsic[1, 2] -= self.bottom_crop[cam_name] / 2
+            #intrinsic[1, 1] *= 1 - self.bottom_crop[cam_name] / w
+            #intrinsic[1, 2] -= self.bottom_crop[cam_name] / 2
 
             return intrinsic
 
@@ -103,7 +105,16 @@ class Calibration():
 
 
     def undistort(self, img_in, cam_name):
-        """Undistort and crop image, handle fisheye cameras separately"""
+        """
+        Undistort image, handle fisheye cameras separately
+
+        Parameters:
+            img_in: input image
+            cam_name: name of the cmaera that recorded the image
+
+        Returns:
+            img_out: undistorted image
+        """
         h, w = img_in.shape[:2]
         CamMat = self.Intrinsic[cam_name]
         newCamMat = self.Intrinsic_UD[cam_name]
