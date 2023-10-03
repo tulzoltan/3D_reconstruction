@@ -91,8 +91,8 @@ class Calibration():
             intrinsic[1, 1] *= h / self.height[cam_name]
             #intrinsic[0, 2] = w/2
             #intrinsic[1, 2] = h/2
-            intrinsic[0, 2] = cx - x
-            intrinsic[1, 2] = cy - y
+            intrinsic[0, 2] -= x
+            intrinsic[1, 2] -= y
 
             #account for obstruction
             #intrinsic[1, 1] *= 1 - self.bottom_crop[cam_name] / w

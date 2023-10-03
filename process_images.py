@@ -208,6 +208,7 @@ if __name__ == "__main__":
                             "focal_x": fx,
                             "focal_y": fy,
                             "reduction_factor": red_fac,
+                            "number_of_images": chunk_size // jump,
                             "file_names": output_file_list}
 
     with open(meta_file, "w") as mf:
