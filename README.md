@@ -5,8 +5,7 @@ Set up the conda environment using the .yaml file
   conda env create --file conda_environment_ptcv.yaml
   ```
 
-Provide the path to sensor data using the variable dat_dir in the file process_images.py and set hyperparameters in the file nerf_model.py
-
+Provide the path to sensor data using the variable dat_dir in the file process_images.py and set hyperparameters in the file nerf_model.py.
 
 Process image files using 
   ```shell
@@ -23,3 +22,4 @@ Evaluate neural network
   ```shell
   python nerf_test.py
   ```
+Weights are stored in the weights subdirectory. In order to load the chosen model, modify load_name variable in nerf_test.py
