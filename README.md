@@ -5,15 +5,21 @@ Set up the conda environment using the .yaml file
   conda env create --file conda_environment_ptcv.yaml
   ```
 
-Provide the path to sensor data using the variable dat_dir in main() in the file generate_depth_midas.py
+Provide the path to sensor data using the variable dat_dir in the file process_images.py and set hyperparameters in the file nerf_model.py
 
 
-Generate depth maps
+Process image files using 
   ```shell
-  python generate_depth_midas.py
+  python process_iamges.py
   ```
 
-Create and display point cloud
+Train neural network
   ```shell
-  python visualize.py
+  python nerf_model.py
+  ```
+Check training loss after 100 steps to verify convergence. If no convergence is observed, restart training.
+
+Evaluate neural network
+  ```shell
+  python nerf_test.py
   ```
